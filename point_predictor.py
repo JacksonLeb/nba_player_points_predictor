@@ -1,74 +1,102 @@
 import torch
-import torch.nn as nn
-import pandas as pd
+import torchvision
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
-from sklearn import datasets
-import matplotlib.pyplot as plt
+import math
 
-#loading data and exploratory analysis
-dataset = pd.read_csv('all_seasons.csv')
-print(f'Shape of Dataset: {dataset.shape}')
-print(dataset.head())
-print(dataset.columns)
-print(dataset.dtypes)
+# gradient computation etc. not efficient for whole data set
+# -> divide dataset into small batches
 
-#data splitting
-categorical_columns = ['team_abbreviation','college', 'country', 'season']
+'''
+# training loop
+for epoch in range(num_epochs):
+    # loop over all batches
+    for i in range(total_batches):
+        batch_x, batch_y = ...
+'''
 
-for category in categorical_columns:
-    dataset[category] = dataset[category].astype('category')
-print(dataset.dtypes)
+# epoch = one forward and backward pass of ALL training samples
+# batch_size = number of training samples used in one forward/backward pass
+# number of iterations = number of passes, each pass (forward+backward) using [batch_size] number of sampes
+# e.g : 100 samples, batch_size=20 -> 100/20=5 iterations for 1 epoch
 
-numerical_columns = ['age', 'player_height',
-       'player_weight', 'gp', 'reb', 'ast', 'net_rating', 
-       'oreb_pct','dreb_pct', 'usg_pct', 'ts_pct', 'ast_pct']
+# --> DataLoader can do the batch computation for us
 
-outputs = ['pts']
+# Implement a custom Dataset:
+# inherit Dataset
+# implement __init__ , __getitem__ , and __len__
 
-#converting categorical data to tensors and stacking
-team = dataset['team_abbreviation'].cat.codes.values
-college = dataset['college'].cat.codes.values
-country = dataset['country'].cat.codes.values
-season = dataset['season'].cat.codes.values
-categorical_data = np.stack([team, college, country, season], 1)
-print(categorical_data[:10])
+class NBADataset(Dataset):
 
-categorical_data = torch.tensor(categorical_data, dtype=torch.int64)
-print(categorical_data[:10])
+    def __init__(self):
+        # Initialize data, download, etc.
+        # read with numpy or pandas
+        xy = np.loadtxt('all_seasons.csv', delimiter=',', dtype=np.float32, skiprows=1)
+        self.n_samples = xy.shape[0]
 
-#converting numerical data into tensors and stacking
-numerical_data = np.stack([dataset[col].values for col in numerical_columns], 1)
-print(numerical_data)
-numerical_data = torch.tensor(numerical_data, dtype=torch.float)
-print(numerical_data[:10])
+        # here the first column is the class label, the rest are the features
+        self.x_data = torch.from_numpy(xy[:, 1:]) # size [n_samples, n_features]
+        self.y_data = torch.from_numpy(xy[:, [0]]) # size [n_samples, 1]
 
-#converting output into tensor
-outputs = torch.tensor(dataset[outputs].values).flatten()
-print(outputs[:10])
+    # support indexing such that dataset[i] can be used to get i-th sample
+    def __getitem__(self, index):
+        return self.x_data[index], self.y_data[index]
 
-#data shape analysis
-print(categorical_data.shape)
-print(numerical_data.shape)
-print(outputs.shape)
+    # we can call len(dataset) to return the size
+    def __len__(self):
+        return self.n_samples
 
-#num unique categorical variables
-print(f'Num Unique Team Values {len(pd.unique(team))}')
-print(f'Num College Values {len(pd.unique(college))}')
-print(f'Num Country Values {len(pd.unique(country))}')
-print(f'Num Season Values {len(pd.unique(season))}')
 
-#embedding categorical data into vectors
-categorical_column_sizes = [len(dataset[column].cat.categories) for column in categorical_columns]
-categorical_embedding_sizes = [(col_size, min(50, (col_size+1)//2)) for col_size in categorical_column_sizes]
-print(categorical_embedding_sizes)
+# create dataset
+dataset = WineDataset()
 
-#train test data splitting
-total_records = 11700
-test_records = int(total_records * .2)
+# get first sample and unpack
+first_data = dataset[0]
+features, labels = first_data
+print(features, labels)
 
-categorical_train_data = categorical_data[:total_records-test_records]
-categorical_test_data = categorical_data[total_records-test_records:total_records]
-numerical_train_data = numerical_data[:total_records-test_records]
-numerical_test_data = numerical_data[total_records-test_records:total_records]
-train_outputs = outputs[:total_records-test_records]
-test_outputs = outputs[total_records-test_records:total_records]
+# Load whole dataset with DataLoader
+# shuffle: shuffle data, good for training
+# num_workers: faster loading with multiple subprocesses
+# !!! IF YOU GET AN ERROR DURING LOADING, SET num_workers TO 0 !!!
+train_loader = DataLoader(dataset=dataset,
+                          batch_size=4,
+                          shuffle=True,
+                          num_workers=2)
+
+# convert to an iterator and look at one random sample
+dataiter = iter(train_loader)
+data = dataiter.next()
+features, labels = data
+print(features, labels)
+
+# Dummy Training loop
+num_epochs = 2
+total_samples = len(dataset)
+n_iterations = math.ceil(total_samples/4)
+print(total_samples, n_iterations)
+for epoch in range(num_epochs):
+    for i, (inputs, labels) in enumerate(train_loader):
+        
+        # here: 178 samples, batch_size = 4, n_iters=178/4=44.5 -> 45 iterations
+        # Run your training process
+        if (i+1) % 5 == 0:
+            print(f'Epoch: {epoch+1}/{num_epochs}, Step {i+1}/{n_iterations}| Inputs {inputs.shape} | Labels {labels.shape}')
+
+# some famous datasets are available in torchvision.datasets
+# e.g. MNIST, Fashion-MNIST, CIFAR10, COCO
+
+train_dataset = torchvision.datasets.MNIST(root='./data', 
+                                           train=True, 
+                                           transform=torchvision.transforms.ToTensor(),  
+                                           download=True)
+
+train_loader = DataLoader(dataset=train_dataset, 
+                                           batch_size=3, 
+                                           shuffle=True)
+
+# look at one random sample
+dataiter = iter(train_loader)
+data = dataiter.next()
+inputs, targets = data
+print(inputs.shape, targets.shape)
