@@ -1,11 +1,13 @@
 from base64 import encode
 import torch
 import torchvision
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import pandas as pd
 import math
 import random
+from sklearn.model_selection import train_test_split
 
 # gradient computation etc. not efficient for whole data set
 # -> divide dataset into small batches
@@ -58,7 +60,7 @@ class NBADataset(Dataset):
 
         # here the third column is the class label, the rest are the features
         self.x_data = torch.tensor(x) # size [n_samples, n_features]
-        self.y_data = torch.tensor(y, dtype=torch.int) # size [n_samples, 1]
+        self.y_data = torch.tensor(y[0], dtype=torch.int) # size [n_samples, 1]
 
     # support indexing such that dataset[i] can be used to get i-th sample
     def __getitem__(self, index):
@@ -68,14 +70,30 @@ class NBADataset(Dataset):
     def __len__(self):
         return self.n_samples
 
+class Model(nn.Module):
+    def __init__(self, n_input_features):
+        super(Model, self).__init__()
+        self.linear = nn.Linear(n_input_features, 1)
+
+    def forward(self, x):
+        y_pred = torch.sigmoid(self.linear(x))
+        return y_pred
+
 
 # create dataset
 dataset = NBADataset()
+x_data = torch.tensor(dataset.x_data, dtype=torch.float16)
+print(type(x_data[15][15]))
+print(type(dataset.y_data[0][15]))
 
+X_train, X_test, y_train, y_test = train_test_split(x_data, dataset.y_data, test_size=0.2, random_state=1234)
 # get first sample and unpack
 first_data = dataset[0]
 features, labels = first_data
 print(features, labels)
+
+#model intialization
+model = Model(features)
 
 # Load whole dataset with DataLoader
 # shuffle: shuffle data, good for training
@@ -84,7 +102,7 @@ print(features, labels)
 train_loader = DataLoader(dataset=dataset,
                           batch_size=4,
                           shuffle=True,
-                          num_workers=2)
+                          num_workers=0)
 
 # convert to an iterator and look at one random sample
 dataiter = iter(train_loader)
@@ -92,22 +110,31 @@ data = dataiter.next()
 features, labels = data
 print(features, labels)
 
-# Dummy Training loop
-num_epochs = 2
-total_samples = len(dataset)
-n_iterations = math.ceil(total_samples/4)
-print(total_samples, n_iterations)
+# loss and optimization 
+num_epochs = 100
+learning_rate = 0.01
+criterion = nn.BCELoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+
+#training loop
 for epoch in range(num_epochs):
-    for i, (inputs, labels) in enumerate(train_loader):
-        
-        # Run your training process
-        if (i+1) % 5 == 0:
-            print(f'Epoch: {epoch+1}/{num_epochs}, Step {i+1}/{n_iterations}| Inputs {inputs.shape} | Labels {labels.shape}')
+    # Forward pass and loss
+    y_pred = model(X_train)
+    loss = criterion(y_pred, y_train)
 
-# some famous datasets are available in torchvision.datasets
+    # Backward pass and update
+    loss.backward()
+    optimizer.step()
 
-# look at one random sample
-dataiter = iter(train_loader)
-data = dataiter.next()
-inputs, targets = data
-print(inputs.shape, targets.shape)
+    # zero grad before new step
+    optimizer.zero_grad()
+
+    if (epoch+1) % 10 == 0:
+        print(f'epoch: {epoch+1}, loss = {loss.item():.4f}')
+
+#accuracy
+with torch.no_grad():
+    y_predicted = model(X_test)
+    y_predicted_cls = y_predicted.round()
+    acc = y_predicted_cls.eq(y_test).sum() / float(y_test.shape[0])
+    print(f'accuracy: {acc.item():.4f}')
